@@ -11,30 +11,36 @@ STARS_SYMBOLS = '+*.:'
 async def blink(canvas, row, column, symbol='*'):
 	"""Blink functiton for the sky animations"""
 
+	# random pause before start
+	ticks_before_start = random.randint(0, 10)
+	# 2 seconds DIM
+	ticks_with_dim = 20
+	# 0.3 second original 1
+	ticks_with_original_1 = 3
+	# 0.3 second bold
+	ticks_with_bold = 3
+	# 0.5 second original 2
+	ticks_with_original_2 = 5
+
 	while True:
-		# random pause before start
-	  	for _ in range(random.randint(0, 10)):
-	  	  await asyncio.sleep(0)
+	  for _ in range(ticks_before_start):
+	    await asyncio.sleep(0)
 
-		# 2 seconds DIM
-	  	canvas.addstr(row, column, symbol, curses.A_DIM)
-	  	for _ in range(20):
-	  	  await asyncio.sleep(0)
+	  canvas.addstr(row, column, symbol, curses.A_DIM)
+	  for _ in range(ticks_with_dim):
+	    await asyncio.sleep(0)
 
-		# 0.3 second original
-	  	canvas.addstr(row, column, symbol)
-	  	for _ in range(3):
-	  	  await asyncio.sleep(0)
+	  canvas.addstr(row, column, symbol)
+	  for _ in range(ticks_with_original_1):
+	    await asyncio.sleep(0)
 		
-		# 0.3 second bold
-	  	canvas.addstr(row, column, symbol, curses.A_BOLD)
-	  	for _ in range(3):
-	  	  await asyncio.sleep(0)
-		
-		# 0.5 second original
-	  	canvas.addstr(row, column, symbol)
-	  	for _ in range(5):
-	  	  await asyncio.sleep(0)
+	  canvas.addstr(row, column, symbol, curses.A_BOLD)
+	  for _ in range(ticks_with_bold):
+	    await asyncio.sleep(0)
+
+	  canvas.addstr(row, column, symbol)
+	  for _ in range(ticks_with_original_2):
+	    await asyncio.sleep(0)
 
 
 async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
