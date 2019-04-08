@@ -55,9 +55,9 @@ async def fly_garbage(canvas, column, garbage_frame, obs_id, speed=0.5):
 		else:
 			obstacles.pop(obs_id)
 	except asyncio.CancelledError:
-		draw_frame(canvas, obs.row, obs.column, garbage_frame, negative=True)
-		obstacles.pop(obs_id)
-		return
+	 	draw_frame(canvas, obs.row, obs.column, garbage_frame, negative=True)
+	 	obstacles.pop(obs_id)
+	 	return
 	
 
 
@@ -114,8 +114,11 @@ async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0
 
 		for obs_id, obs in obstacles.items():
 			if has_collision(obs.coordinates(), obs.size(), (row, column)):
-				obstacles_coroutines[obs_id].throw(asyncio.CancelledError())
-				return
+				try:
+					obstacles_coroutines[obs_id].throw(asyncio.CancelledError())
+				except:
+					coroutines.remove(obstacles_coroutines[obs_id])
+					return
 
 
 async def blink(canvas, row, column, symbol='*'):
