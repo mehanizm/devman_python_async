@@ -99,7 +99,7 @@ async def animate_spaceship(canvas, row, column, frames):
 			draw_frame(canvas, row, column, frame, negative=True)
 
 			# read keyboard and move ship
-			rows_direction, columns_direction, space = read_controls(canvas, 2)
+			rows_direction, columns_direction, _ = read_controls(canvas, 2)
 			row += rows_direction
 			column += columns_direction
 

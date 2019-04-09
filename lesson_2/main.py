@@ -78,9 +78,8 @@ async def run_asteroid_field(canvas, max_column):
 		trash = random.choice(trashes)
 		column = random.randint(1, max_column-1)
 		obs_id = str(uuid.uuid4())
-		coroutine = fly_garbage(canvas, column, trash, obs_id)
-		obstacles_coroutines[obs_id] = coroutine
-		coroutines.append(coroutine)
+		obstacles_coroutines[obs_id] = fly_garbage(canvas, column, trash, obs_id)
+		coroutines.append(obstacles_coroutines[obs_id])
 
 
 async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
@@ -204,7 +203,6 @@ def draw(canvas):
 
 	# read frames for the ship
 	frames = []
-	trashes = []
 	with open("animations/rocket_frame_1.txt", "r") as f:
 	  	frames.append(f.read())
 	with open("animations/rocket_frame_2.txt", "r") as f:
