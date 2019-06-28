@@ -7,14 +7,18 @@ from dataclasses import dataclass
 from curses_tools import draw_frame, read_controls, get_frame_size
 from physics import update_speed
 from collisions import has_collision
+from explosion import explode
+from game_scenario import get_garbage_delay_tics
 
 TIC_TIMEOUT = 0.1
 STARS_DENSITY = 100
 STARS_SYMBOLS = '+*.:'
+YEAR = 1969
 
 coroutines = []
 obstacles = {}
 obstacles_coroutines = {}
+YEAR = 1957
 
 @dataclass 
 class Obstacle:
@@ -28,6 +32,12 @@ class Obstacle:
 	
 	def size(self):
 		return (self.frame_row, self.frame_column)
+
+
+async def year_increment():
+	while True:
+		YEAR += 1
+		await asyncio.sleep(15)
 
 
 async def fly_garbage(canvas, column, garbage_frame, obs_id, speed=0.5):
@@ -55,9 +65,14 @@ async def fly_garbage(canvas, column, garbage_frame, obs_id, speed=0.5):
 		else:
 			obstacles.pop(obs_id)
 	except asyncio.CancelledError:
-	 	draw_frame(canvas, obs.row, obs.column, garbage_frame, negative=True)
-	 	obstacles.pop(obs_id)
-	 	return
+		draw_frame(canvas, obs.row, obs.column, garbage_frame, negative=True)
+		coroutines.append(
+			explode(canvas, 
+			obs.row + round(frame_row / 2), 
+			obs.column + round(frame_column / 2))
+		)
+		obstacles.pop(obs_id)
+		return
 	
 
 
@@ -73,8 +88,12 @@ async def run_asteroid_field(canvas, max_column):
   		trashes.append(f.read())
 	
 	while True:
-		await sleep(ticks_before_start)
+		# if get_garbage_delay_tics(YEAR) == None:
+		# 	await sleep(0)
+		# else:
+		# 	await sleep(get_garbage_delay_tics(YEAR))
 
+		await sleep(ticks_before_start)
 		trash = random.choice(trashes)
 		column = random.randint(1, max_column-1)
 		obs_id = str(uuid.uuid4())
@@ -185,6 +204,34 @@ async def animate_spaceship(canvas, row, column, frames):
 
 			if space:
 				coroutines.append(fire(canvas, row, column + round(frame_column/2)))
+			
+			for obs_id, obs in obstacles.items():
+				if has_collision(obs.coordinates(), obs.size(), (row, column)):
+					try:
+						obstacles_coroutines[obs_id].throw(asyncio.CancelledError())
+					except:
+						coroutines.append(show_gameover(canvas))
+						coroutines.remove(obstacles_coroutines[obs_id])
+						return
+
+
+async def show_gameover(canvas):
+
+	with open('animations/game_over.txt', "r") as f:
+  		game_over_label = f.read()
+	
+	# canvas sizes
+	max_row, max_column = canvas.getmaxyx()
+	midle_row = round(max_row/2)
+	midle_column = round(max_column/2)	
+
+	rows, columns = get_frame_size(game_over_label)
+	corner_row = midle_row - rows / 2
+	corner_column = midle_column - columns / 2
+
+	while True:
+		draw_frame(canvas, corner_row, corner_column, game_over_label)
+		await asyncio.sleep(0)
 
 
 async def sleep(tics=1):
@@ -226,6 +273,9 @@ def draw(canvas):
 
 	# add random garbage
 	coroutines.append(run_asteroid_field(canvas, max_column))
+
+	# year increment
+	# coroutines.append(year_increment())
 
 	# eventloop
 	while True:
