@@ -8,17 +8,16 @@ from curses_tools import draw_frame, read_controls, get_frame_size
 from physics import update_speed
 from collisions import has_collision
 from explosion import explode
-from game_scenario import get_garbage_delay_tics
+from game_scenario import get_garbage_delay_tics, PHRASES
 
 TIC_TIMEOUT = 0.1
 STARS_DENSITY = 100
 STARS_SYMBOLS = '+*.:'
-YEAR = 1969
+YEAR = 1957
 
 coroutines = []
 obstacles = {}
 obstacles_coroutines = {}
-YEAR = 1957
 
 @dataclass 
 class Obstacle:
@@ -34,14 +33,26 @@ class Obstacle:
 		return (self.frame_row, self.frame_column)
 
 
-async def year_increment():
+async def year_increment(canvas):
+	""" Increment YEAR to run the scenario of the game """
+
+	global YEAR
+
 	while True:
+		for _ in range(15):
+			if YEAR in PHRASES.keys():
+				message = "{} {}".format(YEAR, PHRASES[YEAR]+" "*30)
+			else:
+				message = "{} {}".format(YEAR, "..."+" "*30)
+			canvas.addstr(0, 0, message, curses.A_DIM)
+			await asyncio.sleep(0)
 		YEAR += 1
-		await asyncio.sleep(15)
+		
 
 
 async def fly_garbage(canvas, column, garbage_frame, obs_id, speed=0.5):
-	# Animate garbage, flying from top to bottom. Сolumn position will stay same, as specified on start.
+	""" Animate garbage, flying from top to bottom. 
+	Сolumn position will stay same, as specified on start."""
 	
 	rows_number, columns_number = canvas.getmaxyx()
 	column = max(column, 0)
@@ -78,6 +89,7 @@ async def fly_garbage(canvas, column, garbage_frame, obs_id, speed=0.5):
 
 async def run_asteroid_field(canvas, max_column):
 	"""Add random garbage"""
+	global YEAR
 	# frames
 	trashes = []
 	# random pause before start
@@ -88,17 +100,17 @@ async def run_asteroid_field(canvas, max_column):
   		trashes.append(f.read())
 	
 	while True:
-		# if get_garbage_delay_tics(YEAR) == None:
-		# 	await sleep(0)
-		# else:
-		# 	await sleep(get_garbage_delay_tics(YEAR))
+		if get_garbage_delay_tics(YEAR) == None:
+			await asyncio.sleep(0)
+		else:
+			await sleep(get_garbage_delay_tics(YEAR))
 
-		await sleep(ticks_before_start)
-		trash = random.choice(trashes)
-		column = random.randint(1, max_column-1)
-		obs_id = str(uuid.uuid4())
-		obstacles_coroutines[obs_id] = fly_garbage(canvas, column, trash, obs_id)
-		coroutines.append(obstacles_coroutines[obs_id])
+			# await sleep(ticks_before_start)
+			trash = random.choice(trashes)
+			column = random.randint(1, max_column-1)
+			obs_id = str(uuid.uuid4())
+			obstacles_coroutines[obs_id] = fly_garbage(canvas, column, trash, obs_id)
+			coroutines.append(obstacles_coroutines[obs_id])
 
 
 async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
@@ -247,6 +259,10 @@ def draw(canvas):
 	curses.curs_set(False)
 	canvas.nodelay(True)
 	canvas.refresh()
+	# second canvas (subwindow) for the writings about YEAR
+ 	canvas2 = canvas.derwin(1, 1)
+	canvas2.nodelay(True)
+
 
 	# read frames for the ship
 	frames = []
@@ -275,7 +291,7 @@ def draw(canvas):
 	coroutines.append(run_asteroid_field(canvas, max_column))
 
 	# year increment
-	# coroutines.append(year_increment())
+	coroutines.append(year_increment(canvas2))
 
 	# eventloop
 	while True:
@@ -285,6 +301,7 @@ def draw(canvas):
 			except StopIteration:
 				coroutines.remove(coroutine)
 		canvas.refresh()
+		canvas2.refresh()
 		time.sleep(TIC_TIMEOUT)
 
 
