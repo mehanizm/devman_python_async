@@ -3,35 +3,33 @@ import asyncio
 import curses
 import random
 import uuid
-from dataclasses import dataclass
-from curses_tools import draw_frame, read_controls, get_frame_size
-from physics import update_speed
-from collisions import has_collision
-from explosion import explode
 from game_scenario import get_garbage_delay_tics, PHRASES
+from curses_tools import get_frame_size, draw_frame, read_controls
+from physics import update_speed
+from obstacle import Obstacle
+
 
 TIC_TIMEOUT = 0.1
 STARS_DENSITY = 100
 STARS_SYMBOLS = '+*.:'
 
-year = 1957
+
+year = 1963
+
 
 coroutines = []
 obstacles = {}
 obstacles_coroutines = {}
+obstacles_to_stop = []
 
-@dataclass 
-class Obstacle:
-    row: float
-    column: float
-    frame_row: float
-    frame_column: float
 
-    def coordinates(self):
-        return (self.row, self.column)
-    
-    def size(self):
-        return (self.frame_row, self.frame_column)
+""" ############################# """
+""" GENERAL FUNCTIONS """
+
+
+async def sleep(tics=1):
+    for _ in range(tics):
+        await asyncio.sleep(0)
 
 
 async def increment_year(canvas):
@@ -48,105 +46,29 @@ async def increment_year(canvas):
             canvas.addstr(0, 0, message, curses.A_DIM)
             await asyncio.sleep(0)
         year += 1
-        
 
 
-async def fly_garbage(canvas, column, garbage_frame, obs_id, speed=0.5):
-    """ Animate garbage, flying from top to bottom. 
-    Сolumn position will stay same, as specified on start."""
+async def show_gameover(canvas):
+
+    with open('animations/game_over.txt', "r") as f:
+          game_over_label = f.read()
     
-    rows_number, columns_number = canvas.getmaxyx()
-    column = max(column, 0)
-    column = min(column, columns_number - 1)
+    # canvas sizes
+    max_row, max_column = canvas.getmaxyx()
+    middle_row = round(max_row/2)
+    middle_column = round(max_column/2)    
 
-    row = 1
+    rows, columns = get_frame_size(game_over_label)
+    corner_row = middle_row - rows / 2
+    corner_column = middle_column - columns / 2
 
-    frame_row, frame_column = get_frame_size(garbage_frame)
-
-    obs = Obstacle(row, column, frame_row, frame_column)
-    obstacles[obs_id] = obs
-
-    try:
-        while row < rows_number:
-            draw_frame(canvas, obs.row, obs.column, garbage_frame)
-            await asyncio.sleep(0)
-            draw_frame(canvas, obs.row, obs.column, garbage_frame, negative=True)
-            obs.row += speed
-        else:
-            obstacles.pop(obs_id)
-    except asyncio.CancelledError:
-        draw_frame(canvas, obs.row, obs.column, garbage_frame, negative=True)
-        coroutines.append(
-            explode(canvas, 
-            obs.row + round(frame_row / 2), 
-            obs.column + round(frame_column / 2))
-        )
-        obstacles.pop(obs_id)
-        return
-    
-
-
-async def run_asteroid_field(canvas, max_column):
-    """Add random garbage"""
-    global year
-    # frames
-    trashes = []
-    # random pause before start
-    ticks_before_start = random.randint(0, 10)
-    with open('animations/trash_large.txt', "r") as f:
-          trashes.append(f.read())
-    with open('animations/trash_small.txt', "r") as f:
-          trashes.append(f.read())
-    
     while True:
-        if get_garbage_delay_tics(year) == None:
-            await asyncio.sleep(0)
-        else:
-            await sleep(get_garbage_delay_tics(year))
-
-            trash = random.choice(trashes)
-            column = random.randint(1, max_column-1)
-            obs_id = str(uuid.uuid4())
-            obstacles_coroutines[obs_id] = fly_garbage(canvas, column, trash, obs_id)
-            coroutines.append(obstacles_coroutines[obs_id])
-
-
-async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
-    """Display animation of gun shot. Direction and speed can be specified."""
-
-    row, column = start_row, start_column
-
-    canvas.addstr(round(row), round(column), '*')
-    await asyncio.sleep(0)
-
-    canvas.addstr(round(row), round(column), 'O')
-    await asyncio.sleep(0)
-    canvas.addstr(round(row), round(column), ' ')
-
-    row += rows_speed
-    column += columns_speed
-
-    symbol = '-' if columns_speed else '|'
-
-    rows, columns = canvas.getmaxyx()
-    max_row, max_column = rows - 1, columns - 1
-
-    curses.beep()
-
-    while 0 < row < max_row and 0 < column < max_column:
-        canvas.addstr(round(row), round(column), symbol)
+        draw_frame(canvas, corner_row, corner_column, game_over_label)
         await asyncio.sleep(0)
-        canvas.addstr(round(row), round(column), ' ')
-        row += rows_speed
-        column += columns_speed
 
-        for obs_id, obs in obstacles.items():
-            if has_collision(obs.coordinates(), obs.size(), (row, column)):
-                try:
-                    obstacles_coroutines[obs_id].throw(asyncio.CancelledError())
-                except:
-                    coroutines.remove(obstacles_coroutines[obs_id])
-                    return
+
+""" ############################# """
+""" SKY """
 
 
 async def blink(canvas, row, column, symbol='*'):
@@ -179,6 +101,96 @@ async def blink(canvas, row, column, symbol='*'):
           await sleep(ticks_with_original_2)
 
 
+""" ############################# """
+""" OPERATE WITH OBSTACLES AND COLLISIONS """
+
+
+async def explode(canvas, center_row, center_column):
+
+    # read frames for the obstacle
+    frames = []
+    for i in range(4):
+        path = "animations/explosion_{}.txt".format(i+1)
+        with open(path, "r") as f:
+              frames.append(f.read())
+    
+    rows, columns = get_frame_size(frames[0])
+    corner_row = center_row - rows / 2
+    corner_column = center_column - columns / 2
+    curses.beep()
+
+    for frame in frames:
+        draw_frame(canvas, corner_row, corner_column, frame)
+        await asyncio.sleep(0)
+        draw_frame(canvas, corner_row, corner_column, frame, negative=True)
+        await asyncio.sleep(0)
+    
+    return
+
+
+async def fly_garbage(canvas, column, garbage_frame, obs_id, speed=0.5):
+    """ Animate garbage, flying from top to bottom. 
+    Сolumn position will stay same, as specified on start."""
+    
+    rows_number, columns_number = canvas.getmaxyx()
+    column = max(column, 0)
+    column = min(column, columns_number - 1)
+
+    row = 1
+
+    frame_row, frame_column = get_frame_size(garbage_frame)
+
+    obs = Obstacle(row, column, frame_row, frame_column)
+    obstacles[obs_id] = obs
+
+    try:
+        while row < rows_number:
+            draw_frame(canvas, obs.row, obs.column, garbage_frame)
+            await asyncio.sleep(0)
+            draw_frame(canvas, obs.row, obs.column, garbage_frame, negative=True)
+            obs.row += speed
+        else:
+            obstacles.pop(obs_id)
+    except asyncio.CancelledError:
+        draw_frame(canvas, obs.row, obs.column, garbage_frame, negative=True)
+        coroutines.append(explode(canvas, 
+                          obs.row + round(frame_row / 2), 
+                          obs.column + round(frame_column / 2))
+                         )
+        obstacles.pop(obs_id)
+        obstacles_to_stop.remove(obs_id)
+        return
+
+
+async def run_asteroid_field(canvas, max_column):
+    """Add random garbage"""
+    global year
+    # frames
+    trashes = []
+    # random pause before start
+    ticks_before_start = random.randint(0, 10)
+    with open('animations/trash_large.txt', "r") as f:
+          trashes.append(f.read())
+    with open('animations/trash_small.txt', "r") as f:
+          trashes.append(f.read())
+    
+    while True:
+        if get_garbage_delay_tics(year) == None:
+            await asyncio.sleep(0)
+        else:
+            await sleep(get_garbage_delay_tics(year))
+
+            trash = random.choice(trashes)
+            column = random.randint(1, max_column-1)
+            obs_id = str(uuid.uuid4())
+            obstacles_coroutines[obs_id] = fly_garbage(canvas, column, trash, obs_id)
+            coroutines.append(obstacles_coroutines[obs_id])
+
+
+""" ############################# """
+""" OPERATE WITH SHIP """
+
+
 async def animate_spaceship(canvas, row, column, frames):
     """Spaceship animation with keyboard control and limitts"""
 
@@ -190,12 +202,22 @@ async def animate_spaceship(canvas, row, column, frames):
     while True:
         for frame in frames:
 
+            # read keyboard and move ship or fire
+            rows_direction, columns_direction, space = read_controls(canvas, 1)
+            row_speed, column_speed = update_speed(row_speed, column_speed,
+                                                   rows_direction, columns_direction)
+            row += row_speed
+            column += column_speed
+
             # calculate max coordinates for ship
             frame_row, frame_column = get_frame_size(frame)
             row = min(row, max_row - frame_row)
             row = max(1, row)
             column = min(column, max_column - frame_column)
             column = max(1, column)
+
+            if space:
+                coroutines.append(fire(canvas, row, column + round(frame_column/2)))
 
             # draw frame for 0.2 second
             draw_frame(canvas, row, column, frame, negative=False)
@@ -204,58 +226,62 @@ async def animate_spaceship(canvas, row, column, frames):
             # erase frame
             draw_frame(canvas, row, column, frame, negative=True)
 
-            # read keyboard and move ship
-            rows_direction, columns_direction, space = read_controls(canvas, 1)
-            row_speed, column_speed = update_speed(row_speed, column_speed,
-                                                   rows_direction, columns_direction)
-            row += row_speed
-            column += column_speed
-
-            if space:
-                coroutines.append(fire(canvas, row, column + round(frame_column/2)))
-            
+            # check collision
             for obs_id, obs in obstacles.items():
-                if has_collision(obs.coordinates(), obs.size(), (row, column)):
-                    try:
-                        obstacles_coroutines[obs_id].throw(asyncio.CancelledError())
-                    except:
-                        coroutines.append(show_gameover(canvas))
-                        coroutines.remove(obstacles_coroutines[obs_id])
-                        return
+                if obs.has_collision((row, column)):
+                    obstacles_to_stop.append(obs_id)
+                    coroutines.append(show_gameover(canvas))
+                    return
 
 
-async def show_gameover(canvas):
+async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
+    """Display animation of gun shot. Direction and speed can be specified."""
 
-    with open('animations/game_over.txt', "r") as f:
-          game_over_label = f.read()
-    
-    # canvas sizes
-    max_row, max_column = canvas.getmaxyx()
-    middle_row = round(max_row/2)
-    middle_column = round(max_column/2)    
+    row, column = start_row, start_column
 
-    rows, columns = get_frame_size(game_over_label)
-    corner_row = middle_row - rows / 2
-    corner_column = middle_column - columns / 2
+    canvas.addstr(round(row), round(column), '*')
+    await asyncio.sleep(0)
 
-    while True:
-        draw_frame(canvas, corner_row, corner_column, game_over_label)
+    canvas.addstr(round(row), round(column), 'O')
+    await asyncio.sleep(0)
+    canvas.addstr(round(row), round(column), ' ')
+
+    row += rows_speed
+    column += columns_speed
+
+    symbol = '-' if columns_speed else '|'
+
+    rows, columns = canvas.getmaxyx()
+    max_row, max_column = rows - 1, columns - 1
+
+    curses.beep()
+
+    while 0 < row < max_row and 0 < column < max_column:
+        canvas.addstr(round(row), round(column), symbol)
         await asyncio.sleep(0)
+        canvas.addstr(round(row), round(column), ' ')
+        row += rows_speed
+        column += columns_speed
+
+        for obs_id, obs in obstacles.items():
+            if obs.has_collision((row, column)):
+                obstacles_to_stop.append(obs_id)
+                return
 
 
-async def sleep(tics=1):
-    for _ in range(tics):
-        await asyncio.sleep(0)
+""" ############################# """
+""" MAIN """
 
 
 def draw(canvas):
-    """Main fraw functions"""
+    """Main draw functions"""
 
     # canvas settings
     canvas.border()
     curses.curs_set(False)
     canvas.nodelay(True)
     canvas.refresh()
+
     # second canvas (subwindow) for the writings about year
     canvas2 = canvas.derwin(1, 1)
     canvas2.nodelay(True)
@@ -292,11 +318,18 @@ def draw(canvas):
 
     # eventloop
     while True:
+        for obs_id in obstacles_to_stop:
+            try:
+                obstacles_coroutines[obs_id].throw(asyncio.CancelledError())
+            except StopIteration:
+                coroutines.remove(obstacles_coroutines[obs_id]) 
+        
         for coroutine in coroutines:
             try:
                 coroutine.send(None)
             except StopIteration:
                 coroutines.remove(coroutine)
+            
         canvas.refresh()
         canvas2.refresh()
         time.sleep(TIC_TIMEOUT)
