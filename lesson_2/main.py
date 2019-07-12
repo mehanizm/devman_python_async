@@ -12,7 +12,9 @@ from obstacle import Obstacle
 TIC_TIMEOUT = 0.1
 STARS_DENSITY = 100
 STARS_SYMBOLS = '+*.:'
-
+FIRE_SPEED = -0.8
+RAW_SPACE_SPEED = 5
+COLUMN_SPACE_SPEED = 5
 
 year = 1963
 
@@ -132,13 +134,13 @@ async def fly_garbage(canvas, column, garbage_frame, obs_id, speed=0.5):
     """ Animate garbage, flying from top to bottom. 
     Сolumn position will stay same, as specified on start."""
     
+    frame_row, frame_column = get_frame_size(garbage_frame)
+
     rows_number, columns_number = canvas.getmaxyx()
     column = max(column, 0)
-    column = min(column, columns_number - 1)
+    column = min(column, columns_number - frame_column - 1)
 
     row = 1
-
-    frame_row, frame_column = get_frame_size(garbage_frame)
 
     obs = Obstacle(row, column, frame_row, frame_column)
     obstacles[obs_id] = obs
@@ -181,7 +183,7 @@ async def run_asteroid_field(canvas, max_column):
             await sleep(get_garbage_delay_tics(year))
 
             trash = random.choice(trashes)
-            column = random.randint(1, max_column-1)
+            column = random.randint(1, max_column)
             obs_id = str(uuid.uuid4())
             obstacles_coroutines[obs_id] = fly_garbage(canvas, column, trash, obs_id)
             coroutines.append(obstacles_coroutines[obs_id])
@@ -205,7 +207,8 @@ async def animate_spaceship(canvas, row, column, frames):
             # read keyboard and move ship or fire
             rows_direction, columns_direction, space = read_controls(canvas, 1)
             row_speed, column_speed = update_speed(row_speed, column_speed,
-                                                   rows_direction, columns_direction)
+                                                   rows_direction, columns_direction,
+                                                   RAW_SPACE_SPEED, COLUMN_SPACE_SPEED)
             row += row_speed
             column += column_speed
 
@@ -217,21 +220,24 @@ async def animate_spaceship(canvas, row, column, frames):
             column = max(1, column)
 
             if space:
-                coroutines.append(fire(canvas, row, column + round(frame_column/2)))
+                coroutines.append(fire(canvas, row, column + round(frame_column/2), FIRE_SPEED))
 
             # draw frame for 0.2 second
             draw_frame(canvas, row, column, frame, negative=False)
-            await sleep(2)
-
-            # erase frame
-            draw_frame(canvas, row, column, frame, negative=True)
 
             # check collision
             for obs_id, obs in obstacles.items():
                 if obs.has_collision((row, column)):
                     obstacles_to_stop.append(obs_id)
                     coroutines.append(show_gameover(canvas))
+                    draw_frame(canvas, row, column, frame, negative=True)
                     return
+
+            # check collision   
+            await sleep(2)
+
+            # erase frame
+            draw_frame(canvas, row, column, frame, negative=True)
 
 
 async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
@@ -329,7 +335,8 @@ def draw(canvas):
                 coroutine.send(None)
             except StopIteration:
                 coroutines.remove(coroutine)
-            
+        
+        canvas.border()
         canvas.refresh()
         canvas2.refresh()
         time.sleep(TIC_TIMEOUT)
